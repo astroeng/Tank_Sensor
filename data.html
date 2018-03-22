@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html><head>
+  <script src=https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js></script>
+  <script src=https://www.google.com/jsapi></script>
+</head><body><table width=80% align=center>
+<tr>
+  <td><div id='time' style='width: 40%;'></div></td>
+  <td><div id='distance' style='width: 40%;'></div></td>
+</tr></table><table width=80% align=center>
+<tr>
+  <td><p></td>
+  <td>Sample Time</td>
+  <td>Valid</td>
+  <td>Distance</td>
+  <td>Gallons</td>
+</tr><tr>
+  <td>Oil Tank</td>
+  <td><div id='timeS0' style='width: 25%;'></div></td>
+  <td><div id='validS0' style='width: 25%;'></div></td>
+  <td><div id='distanceS0' style='width: 25%;'></div></td>
+  <td><div id='gallonsS0' style='width: 25%;'></div></td>
+</tr></table><script>
+function loadSensorData() {
+  var jsonData = $.ajax({url: 'http://192.168.23.137/sensor.json', dataType: 'jsonp'}).done(function (results) {
+    document.getElementById('timeS0').innerHTML = parseFloat(results[0].time);
+    document.getElementById('validS0').innerHTML = parseFloat(results[0].valid);
+    document.getElementById('distanceS0').innerHTML = parseFloat(results[0].d_in);
+
+    var distance = parseFloat(results[0].d_in);
+    distance = Math.min(44.0, distance);
+    distance = Math.max(0.0, distance);
+    
+    var gallons = 0.0;
+    var radius = 13.5;
+    var point2 = 30.5;
+    var point3 = 44.0;
+    var width = 27.0;
+    var length = 60.0;
+    var in3_gal = 231.0;
+    var base1 = 74.36;
+    var base2 = 119.22;
+    
+    if (distance < radius) {
+      var val1 = Math.acos((radius - distance) / radius) * 2.0;
+      var val2 = radius * radius / 2.0;
+      var val3 = val2 * (val1 - Math.sin(val1)) * length / in3_gal;
+      gallons = (base1 - val3) + base2 + base1;
+    } else if (distance < point2) {
+      gallons = ((point2 - distance) * width * length) / in3_gal + base1;
+    } else {
+      var val1 = Math.acos((radius - (point3 - distance)) / radius) * 2.0;
+      var val2 = radius * radius / 2.0;
+      var val3 = val2 * (val1 - Math.sin(val1)) * length / in3_gal;
+      gallons = val3;
+    }
+    document.getElementById('gallonsS0').innerHTML = gallons;
+  }); 
+ }
+loadSensorData();
+</script>
+</body></html>
