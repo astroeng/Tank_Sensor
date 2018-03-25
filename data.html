@@ -21,12 +21,12 @@
   <td><div id='gallonsS0' style='width: 25%;'></div></td>
 </tr></table><script>
 function loadSensorData() {
-  var jsonData = $.ajax({url: 'http://192.168.23.137/sensor.json', dataType: 'jsonp'}).done(function (results) {
+  var jsonData = $.ajax({url: 'http://192.168.23.121/data.json', dataType: 'jsonp'}).done(function (results) {
     document.getElementById('timeS0').innerHTML = parseFloat(results[0].time);
     document.getElementById('validS0').innerHTML = parseFloat(results[0].valid);
-    document.getElementById('distanceS0').innerHTML = parseFloat(results[0].d_in);
+    document.getElementById('distanceS0').innerHTML = parseFloat(results[0].dm_in);
 
-    var distance = parseFloat(results[0].d_in);
+    var distance = parseFloat(results[0].dm_in);
     distance = Math.min(44.0, distance);
     distance = Math.max(0.0, distance);
     
