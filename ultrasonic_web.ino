@@ -3,9 +3,12 @@
 #include <ESP8266HTTPClient.h>
 #include <limits.h>
 
-#define SAMPLE_SIZE 16
-#define SENSOR_INTERVAL 30000
+#define DEBUG(x) x
 
+#define SAMPLE_SIZE 16
+#define SENSOR_INTERVAL 5000
+
+#define STATUS_LED 5
 #define TRIG 12
 #define PULSE 13
 
@@ -72,11 +75,18 @@ String webpage =
 
 void handleRoot() 
 {
+  DEBUG(unsigned long start = micros());
+
   server.send(200, "text/html", webpage);
+
+  DEBUG(Serial.println("handleRoot," + String(micros() - start)));
+  
 }
 
 void dataJSON() 
 {
+  DEBUG(unsigned long start = micros());
+  
   String value = server.arg("callback");
 
   String message = "typeof " + value + " === 'function' && " + value + 
@@ -85,6 +95,8 @@ void dataJSON()
                        "dm_in:" + String(distanceMedian) + " }])\n";
 
   server.send(200, "text/plain", message);
+  
+  DEBUG(Serial.println("dataJSON," + String(micros() - start)));
 }
 
 String JSON_SensorValues(SampleData_Type data)
@@ -96,34 +108,51 @@ String JSON_SensorValues(SampleData_Type data)
 
 void sensorJSON() 
 {
+  DEBUG(unsigned long start = micros());
+  
   String value = server.arg("callback");
 
-  String message = "typeof " + value + " === 'function' && " + value + 
-                   "([" + JSON_SensorValues(samples[0]) + "," + 
-                          JSON_SensorValues(samples[1]) + "," + 
-                          JSON_SensorValues(samples[2]) + "," + 
-                          JSON_SensorValues(samples[3]) + "," + 
-                          JSON_SensorValues(samples[4]) + "," + 
-                          JSON_SensorValues(samples[5]) + "," + 
-                          JSON_SensorValues(samples[6]) + "," + 
-                          JSON_SensorValues(samples[7]) + "," + 
-                          JSON_SensorValues(samples[8]) + "," + 
-                          JSON_SensorValues(samples[9]) + "," + 
-                          JSON_SensorValues(samples[10]) + "," + 
-                          JSON_SensorValues(samples[11]) + "," + 
-                          JSON_SensorValues(samples[12]) + "," + 
-                          JSON_SensorValues(samples[13]) + "," + 
-                          JSON_SensorValues(samples[14]) + "," + 
-                          JSON_SensorValues(samples[15]) + "]);\n";
+  String message = "typeof " + value + " === 'function' && " + value +   "([";
+
+  for (int i = 0; i < SAMPLE_SIZE; i++) {
+    message += JSON_SensorValues(samples[i]) + ",";  
+  }
+
+  message += "]);\n";
 
   server.send(200, "text/plain", message);
+  
+  DEBUG(Serial.println("sensorJSON," + String(micros() - start)));
 }
 
+void dataCSV() 
+{
+  DEBUG(unsigned long start = micros());
+
+  String value = server.arg("callback");
+
+  String message = "typeof " + value + " === 'function' && " + 
+                          String(value)            + "," + 
+                          String(sampleTime)       + "," +
+                          String(distance)         + "," +
+                          String(distanceMedian)   + ",";
+
+  for (int i = 0; i < SAMPLE_SIZE; i++) {
+    message += String(samples[i].data) + ",";  
+  }
+
+  message += "\n";
+
+  server.send(200, "text/plain", message);
+
+  DEBUG(Serial.println("dataCSV," + String(micros()-start)));
+}
 
 void setupServer()
 {
   server.on("/", handleRoot);
   server.on("/data.json", dataJSON);
+  server.on("/data.csv", dataCSV);
   server.on("/sensor.json", sensorJSON);
   server.onNotFound(handleNotFound);
   server.begin();
@@ -131,6 +160,7 @@ void setupServer()
 
 void handleNotFound()
 {
+  DEBUG(unsigned long start = micros());
 
   String message = "File Not Found\n\n";
   message += "URI: ";
@@ -140,16 +170,18 @@ void handleNotFound()
   message += "\nArguments: ";
   message += server.args();
   message += "\n";
-  for (uint8_t i=0; i<server.args(); i++){
+  for (uint8_t i=0; i<server.args(); i++) {
     message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
   }
   server.send(404, "text/plain", message);
+  
+  DEBUG(Serial.println("handleNotFound," + String(micros() - start)));
 
 }
 
 void setupWifi()
 {
-  pinMode(5, OUTPUT);
+  pinMode(STATUS_LED, OUTPUT);
   int state = 0;
   WiFi.mode(WIFI_STA);
 
@@ -158,13 +190,12 @@ void setupWifi()
   while (WiFi.status() != WL_CONNECTED)
   {
     // During the wait blink the status LED rapidly.
-    digitalWrite(5, state);
+    digitalWrite(STATUS_LED, state);
     state ^= 1;
     delay(100);
   }
   
 }
-
 
 void setup_serial()
 {
@@ -208,8 +239,6 @@ void pulseISR()
   }
   
 }
-
-
 
 void setup() 
 {
@@ -257,28 +286,68 @@ void addElement(unsigned long value)
 
 double getDistance()
 {
-  unsigned long temp[SAMPLE_SIZE];
-   
-  for (int i = 0; i < SAMPLE_SIZE; i++)
-  {
-    temp[i] = samples[i].data;
-  }
 
   for (int i = 0; i < SAMPLE_SIZE-1; i++)
   {
     for (int j = i+1; j < SAMPLE_SIZE; j++)
     {
-      if (temp[i] > temp[j])
+      if (samples[i].data > samples[j].data)
       {
-        unsigned long temp2 = temp[i];
-        temp[i] = temp[j];
-        temp[j] = temp2;  
+        SampleData_Type temp2 = samples[i];
+        samples[i] = samples[j];
+        samples[j] = temp2;  
       }  
     }  
   }
+
+  return (samples[5].data + 
+          samples[6].data +
+          samples[7].data + 
+          samples[8].data + 
+          samples[9].data +
+          samples[10].data) / 6.0;
+
+}
+
+// (331.3 + 0.606 * Tc) / 2.0 / 1000000.0 * 100.0 / 2.54 [inch/uS]
+
+// For microcontrollers I try and make the code as non blocking
+// as practically possible. In the function below the kick off
+// off the measurement is the only delay needed to perform the
+// measurement of the ultrasonic sensor. The measurement of the
+// pulse duration is performed by an ISR.
+
+void measureDistance(double Tc)
+{
   
-  return (temp[5] + temp[6] + temp[7] + temp[8] + temp[9] + temp[10]) / 6.0;
-  
+  // Kickoff a measurement every interval.
+  if (millis() > startMeasurementTime)
+  {
+    pulseStart = micros();
+    digitalWrite(TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG, LOW);
+    pulseEnd = micros();
+    DEBUG(Serial.println("pulseRequest," + String(pulseEnd - pulseStart)));
+
+    startMeasurementTime += SENSOR_INTERVAL;
+  }
+
+  if (pulseHappened)
+  {
+    DEBUG(unsigned long start = micros());
+
+    double soundSpeed = (331.3 + 0.606 * Tc) / 2.0 / 1000000.0 * 100.0 / 2.54;
+    sampleTime = millis();
+    addElement(pulseEnd - pulseStart);
+    pulseLength = (pulseLength * 0.9) + ((pulseEnd - pulseStart) * 0.1);
+    pulseHappened = false;
+
+    distance = pulseLength * soundSpeed;
+    distanceMedian = getDistance() * soundSpeed;
+
+    DEBUG(Serial.println("pulseHappened," + String(micros() - start)));
+  }
 }
 
 void loop() 
@@ -287,26 +356,7 @@ void loop()
   // interface to work.
   server.handleClient();
 
-  // Kickoff a measurement every interval.
-  if (millis() > startMeasurementTime)
-  {
-    digitalWrite(TRIG, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(TRIG, LOW);
-
-    startMeasurementTime += SENSOR_INTERVAL;
-  }
-
-  if (pulseHappened)
-  {
-    sampleTime = millis();
-    addElement(pulseEnd - pulseStart);
-    pulseLength = (pulseLength * 0.9) + ((pulseEnd - pulseStart) * 0.1);
-    pulseHappened = false;
-
-    distance = (pulseLength)  /  148.0;
-    distanceMedian = getDistance()   /  148.0;
-  }
+  measureDistance(20.0);
 
 }
 
