@@ -3,10 +3,10 @@
 #include <ESP8266HTTPClient.h>
 #include <limits.h>
 
-#define DEBUG(x) x
+#define DEBUG(x) //x
 
 #define SAMPLE_SIZE 16
-#define SENSOR_INTERVAL 5000
+#define SENSOR_INTERVAL 30000
 
 #define STATUS_LED 5
 #define TRIG 12
@@ -25,9 +25,9 @@ ESP8266WebServer server(80);
 const char WiFiSSID[] = "sensors";
 const char WiFiPSK[] = "sensors123";
 
-unsigned long sampleTime = 0;
-double distance = 0.0;
-double distanceMedian = 0.0;
+volatile unsigned long sampleTime = 0;
+volatile double distance = 0.0;
+volatile double distanceMedian = 0.0;
 
 // While this (holding the html & javascript text in a string) "works" 
 // it would be much better to get an SD card shield and serve this type 
@@ -112,7 +112,7 @@ void sensorJSON()
   
   String value = server.arg("callback");
 
-  String message = "typeof " + value + " === 'function' && " + value +   "([";
+  String message = "typeof " + value + " === 'function' && " + value + "([";
 
   for (int i = 0; i < SAMPLE_SIZE; i++) {
     message += JSON_SensorValues(samples[i]) + ",";  
@@ -202,18 +202,20 @@ void setup_serial()
   Serial.begin(115200);
 }
 
+volatile double pulseLength = 0;
 
-double pulseLength = 0;
+volatile unsigned  long startMeasurementTime = SENSOR_INTERVAL;
+volatile unsigned long pulseStart = 0;
+volatile unsigned long pulseEnd = 1;
 
-unsigned long startMeasurementTime = SENSOR_INTERVAL;
-unsigned long pulseStart = 0;
-unsigned long pulseEnd = 1;
+volatile bool pulseHappened = false;
 
-bool pulseHappened = false;
-
-void pulseISR()
+void ICACHE_RAM_ATTR pulseISR()
 {
-  // Note: micros will not increment during the ISR.
+  unsigned long top = micros();
+
+  // Note: micros will not increment during the ISR. 
+  // Apparently only true on specific Arduino platforms.
 
   // If pulseStart is less than pulseEnd it means that
   // this is the start of a new pulse. Otherwise, this
@@ -221,11 +223,11 @@ void pulseISR()
 
   if (pulseStart < pulseEnd)
   {
-    pulseStart = micros();
+    pulseStart = top;
   }
   else
   {
-    pulseEnd = micros();
+    pulseEnd = top;
     pulseHappened = true;
   }
 
@@ -238,11 +240,13 @@ void pulseISR()
     pulseEnd = 0;  
   }
   
+  DEBUG(Serial.println(String(micros()) + String(top)));
+  
 }
 
 void setup() 
 {
-  setup_serial();
+  DEBUG(setup_serial());
 
   setupWifi();
   setupServer();
@@ -309,7 +313,8 @@ double getDistance()
 
 }
 
-// (331.3 + 0.606 * Tc) / 2.0 / 1000000.0 * 100.0 / 2.54 [inch/uS]
+// uS to distance conversion for ultrasonic range sensor.
+// (331.3 + 0.606 * Tc) [M/S] / 1000000.0 * 100.0 / 2.54 [inch/uS] / 2.0 [roundTrip Correction]
 
 // For microcontrollers I try and make the code as non blocking
 // as practically possible. In the function below the kick off
@@ -323,11 +328,16 @@ void measureDistance(double Tc)
   // Kickoff a measurement every interval.
   if (millis() > startMeasurementTime)
   {
+    // Setting pulseStart and pulseEnd here has the added benefit of
+    // resetting the ISR logic if at startup the ISR fires on an extra
+    // falling edge. This seems to have occured during certain startup
+    // conditions.
     pulseStart = micros();
     digitalWrite(TRIG, HIGH);
     delayMicroseconds(10);
     digitalWrite(TRIG, LOW);
     pulseEnd = micros();
+
     DEBUG(Serial.println("pulseRequest," + String(pulseEnd - pulseStart)));
 
     startMeasurementTime += SENSOR_INTERVAL;
@@ -337,8 +347,9 @@ void measureDistance(double Tc)
   {
     DEBUG(unsigned long start = micros());
 
-    double soundSpeed = (331.3 + 0.606 * Tc) / 2.0 / 1000000.0 * 100.0 / 2.54;
+    double soundSpeed = (331.3 + 0.606 * Tc) / 1000000.0 * 100.0 / 2.54 / 2.0;
     sampleTime = millis();
+    
     addElement(pulseEnd - pulseStart);
     pulseLength = (pulseLength * 0.9) + ((pulseEnd - pulseStart) * 0.1);
     pulseHappened = false;

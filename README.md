@@ -9,7 +9,7 @@ as a tank sensor.
   + HCSR04 : Ultrasonic Sensor
 ## Interface
   + sensor.json : Provides an interface to get the raw sensor samples.
-  + data.json : Provides an inteface to get the reading in engineering units. Inches is the current implementation.
+  + data.json : Provides an interface to get the reading in engineering units. Inches is the current implementation.
 ## Other Potential Uses
   + Door Sensor
   + Overhead sensor to detect if an object (car) is in a specific location (parking spot)
